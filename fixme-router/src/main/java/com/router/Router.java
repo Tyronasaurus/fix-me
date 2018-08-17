@@ -1,6 +1,10 @@
 package com.router;
 
+import com.core.decoders.Decoder;
+import com.core.encoders.AcceptConnectionEncoder;
 import com.core.messages.AcceptConnection;
+import com.core.messages.FIXMessage;
+import com.core.messages.MessageTypes;
 import io.netty.bootstrap.ServerBootstrap;
 import io.netty.channel.*;
 import io.netty.channel.nio.NioEventLoopGroup;
@@ -9,7 +13,11 @@ import io.netty.channel.socket.nio.NioServerSocketChannel;
 import io.netty.handler.codec.string.StringDecoder;
 import io.netty.handler.codec.string.StringEncoder;
 
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
 import java.util.HashMap;
+import java.util.Iterator;
 
 public class Router implements Runnable{
 
@@ -41,11 +49,11 @@ public class Router implements Runnable{
     public void run()
     {
         //accepts new connections as they arrive and pass them to worker for proccessing
-        EventLoopGroup bossGroup = new NioEventLoopGroup();
-        EventLoopGroup workerGroup = new NioEventLoopGroup();
+        bossGroup = new NioEventLoopGroup();
+        workerGroup = new NioEventLoopGroup();
 
         try {
-            //determines how to server will proccess incoming connections
+            //determines how to server will process incoming connections
             ServerBootstrap bootstrap = new ServerBootstrap()
                     .group(bossGroup, workerGroup)
                     .channel(NioServerSocketChannel.class)
@@ -55,18 +63,20 @@ public class Router implements Runnable{
                         {
                             ChannelPipeline pipeline = ch.pipeline();
 
-                            pipeline.addLast("decoder", new StringDecoder());
-                            pipeline.addLast("encoder", new StringEncoder());
-                            pipeline.addLast("handler", new ProcessingHandler());
+                            pipeline.addLast(new AcceptConnectionEncoder());
+                            pipeline.addLast(new Decoder());
+                            pipeline.addLast(new StringDecoder());
+                            pipeline.addLast(new StringEncoder());
+                            pipeline.addLast(new ProcessingHandler());
                         }
                     }).option(ChannelOption.SO_REUSEADDR, true);
 
             //bind server to port and start listening for incoming connections
             ChannelFuture f = bootstrap.bind(port).sync();
             f.channel().closeFuture().sync();
-        }
-        catch (InterruptedException e) { e.printStackTrace(); }
-        finally {
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        } finally {
             bossGroup.shutdownGracefully();
             workerGroup.shutdownGracefully();
         }
@@ -75,32 +85,63 @@ public class Router implements Runnable{
     class ProcessingHandler extends ChannelInboundHandlerAdapter {
 
         @Override
-        public void channelRead (ChannelHandlerContext ctx, Object msg) {
-            System.out.println(msg + " from " + ctx.channel().remoteAddress());
+        public void channelRead (ChannelHandlerContext ctx, Object msg) throws Exception {
+            FIXMessage fixMessage = (FIXMessage) msg;
+            if (fixMessage.getMessageType().equals(MessageTypes.ACCEPT_CONNECTION.toString()))
+                addToRouteTable(ctx);
+            System.out.println(msg);
+            showTable();
         }
 
         @Override
-        public void handlerAdded(ChannelHandlerContext ctx) throws Exception {
-            System.out.println(clientType + " [" + ctx.channel().remoteAddress() + "] added");
+        public void handlerRemoved(ChannelHandlerContext ctx) {
+            System.out.println(clientType + " [" + getIdFromTable(ctx) + "] removed");
+            try {
+                routeTable.remove(getIdFromTable(ctx));
+            } catch (Exception e) {
+                System.out.println("[FAILED TO REMOVE CHANNEL FROM ROUTE TABLE]");
+            }
         }
 
         @Override
-        public void handlerRemoved(ChannelHandlerContext ctx) throws Exception {
-            System.out.println(clientType + " [" + ctx.channel().remoteAddress() + "] removed");
+        public void channelReadComplete(ChannelHandlerContext ctx) throws Exception {
+            //showTable();
         }
-
     }
 
+    private Integer getIdFromTable(ChannelHandlerContext ctx) {
+        int id = 0;
+        for (HashMap.Entry<Integer, ChannelHandlerContext> entry : routeTable.entrySet()) {
+            if (entry.getValue() == ctx) {
+                id = entry.getKey();
+            }
+        }
+        return id;
+    }
 
-    private void acceptNewConnection(ChannelHandlerContext ctx, Object msg) {
-        AcceptConnection connectionMessage = (AcceptConnection) msg;
+    private void showTable() throws IOException {
+        BufferedReader in = new BufferedReader(new InputStreamReader(System.in));
+        String input = in.readLine();
+        if (input.equals("show table")) {
+            for (HashMap.Entry<Integer, ChannelHandlerContext> entry : routeTable.entrySet()) {
+                System.out.println("[" + entry.getKey() + "] - " + isMarketOrBroker(entry.getKey().toString()));
+            }
+        }
+    }
+
+    public String isMarketOrBroker(String id) {
+        if (id.substring(5).equals("0")) {
+            return "Market";
+        }
+        return "Broker";
+    }
+
+    private void addToRouteTable(ChannelHandlerContext ctx) {
         String id = ctx.channel().remoteAddress().toString().substring(11);
-        //noinspection UnusedAssignment
-        id = id.concat(clientType.equals("Market") ? "0" : "1");
-        connectionMessage.setId(Integer.valueOf(id));
-        connectionMessage.setNewChecksum();
-        ctx.writeAndFlush(connectionMessage);
-        routeTable.put(connectionMessage.getId(), ctx);
-        System.out.println("Accepted connection and assigned " + clientType + " to " + connectionMessage.getId());
+        String tempSub = clientType.equals("Market") ? "0" : "1";
+        id = id.concat(tempSub);
+        System.out.println("Accepted connection from " + ctx.channel().remoteAddress() + "\n    Set ID to " + id);
+        ctx.writeAndFlush("assigned ID: " + id);
+        routeTable.put(Integer.valueOf(id), ctx);
     }
 }

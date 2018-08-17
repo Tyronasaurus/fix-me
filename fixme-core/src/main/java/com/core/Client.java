@@ -1,5 +1,7 @@
 package com.core;
 
+import com.core.decoders.Decoder;
+import com.core.encoders.AcceptConnectionEncoder;
 import com.core.messages.AcceptConnection;
 import com.core.messages.FIXMessage;
 import com.core.messages.MessageTypes;
@@ -10,6 +12,7 @@ import io.netty.channel.socket.SocketChannel;
 import io.netty.channel.socket.nio.NioSocketChannel;
 import io.netty.handler.codec.string.StringDecoder;
 import io.netty.handler.codec.string.StringEncoder;
+import sun.plugin2.message.Message;
 
 import java.io.BufferedReader;
 import java.io.IOException;
@@ -23,7 +26,7 @@ public class Client implements Runnable{
     private int id;
     private String host;
 
-    public Client(String host, int port) throws Exception {
+    public Client(String host, int port) {
         this.port = port;
         this.host = host;
         switch (port) {
@@ -66,9 +69,11 @@ public class Client implements Runnable{
                         protected void initChannel(SocketChannel socketChannel) throws Exception {
                             ChannelPipeline pipeline = socketChannel.pipeline();
 
-                            pipeline.addLast("decoder", new StringDecoder());
-                            pipeline.addLast("encoder", new StringEncoder());
-                            pipeline.addLast("handler", new ClientHandler());
+                            pipeline.addLast(new AcceptConnectionEncoder());
+                            pipeline.addLast(new Decoder());
+                            pipeline.addLast(new StringDecoder());
+                            pipeline.addLast(new StringEncoder());
+                            pipeline.addLast(new ClientHandler());
                         }
                     });
             ChannelFuture f = server.connect(this.host, this.port).sync();
@@ -85,36 +90,35 @@ public class Client implements Runnable{
         @Override
         public void channelActive(ChannelHandlerContext ctx) {
             System.out.println("Connected to the server - " + ctx.channel().remoteAddress());
-            ctx.channel().writeAndFlush("New client added");
+            AcceptConnection msg = new AcceptConnection(MessageTypes.ACCEPT_CONNECTION.toString(), 0 , 0);
+
+            ctx.writeAndFlush(msg);
         }
 
         @Override
-        public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
-            System.out.println(msg);
+        public void channelRead(ChannelHandlerContext ctx, Object msg) {
+            System.out.println("[SERVER] - " + msg);
         }
 
         private void channelWrite(ChannelHandlerContext ctx) {
-            System.out.println("channelWrite");
-            while (true) {
-                try {
-                    String input = getClientText();
-                    if (input.equals("bye")) {
-                        workerGroup.shutdownGracefully();
-                    }
-                    else if (clientType.equals("Broker")) {
-                        ctx.writeAndFlush(input);
-                        System.out.println("Sending request");
-                    }
-                } catch (Exception e) {
-                    e.printStackTrace();
-                    channelWrite(ctx);
+            try {
+                String input = getClientText();
+                if (input.length() == 0) {
+                    throw new Exception("Input is empty");
                 }
+                else if (clientType.equals("Broker")) {
+                    ctx.writeAndFlush(input);
+                    System.out.println("Sending request to router...");
+                }
+            } catch (Exception e) {
+                System.out.println(e.getMessage());
+                channelWrite(ctx);
             }
         }
 
         @Override
         public void channelReadComplete(ChannelHandlerContext ctx) {
-            System.out.println("channelReadComplete");
+
             if (clientType.equals("Broker"))
                 channelWrite(ctx);
         }

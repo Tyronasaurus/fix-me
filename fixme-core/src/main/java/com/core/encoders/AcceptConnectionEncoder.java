@@ -1,4 +1,4 @@
-package com.core.Encoders;
+package com.core.encoders;
 
 import com.core.messages.AcceptConnection;
 import com.core.messages.MessageTypes;
@@ -18,6 +18,8 @@ public class AcceptConnectionEncoder extends MessageToByteEncoder<AcceptConnecti
         out.writeCharSequence(msg.getMessageType(), cs);
         if (msg.getMessageType().equals(MessageTypes.ACCEPT_CONNECTION.toString())) {
             out.writeInt(msg.getId());
+            out.writeInt(msg.getChecksumLength());
+            out.writeCharSequence(msg.getChecksum(), cs);
         }
     }
 }
