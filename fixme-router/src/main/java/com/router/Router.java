@@ -2,7 +2,9 @@ package com.router;
 
 import com.core.decoders.Decoder;
 import com.core.encoders.AcceptConnectionEncoder;
+import com.core.encoders.BuySellEncoder;
 import com.core.messages.AcceptConnection;
+import com.core.messages.BuySell;
 import com.core.messages.FIXMessage;
 import com.core.messages.MessageTypes;
 import io.netty.bootstrap.ServerBootstrap;
@@ -63,10 +65,10 @@ public class Router implements Runnable{
                         {
                             ChannelPipeline pipeline = ch.pipeline();
 
-                            pipeline.addLast(new AcceptConnectionEncoder());
-                            pipeline.addLast(new Decoder());
-                            pipeline.addLast(new StringDecoder());
-                            pipeline.addLast(new StringEncoder());
+                            pipeline.addLast(new Decoder()); //outbound
+                            pipeline.addLast(new AcceptConnectionEncoder()); //inbound
+                            pipeline.addLast(new BuySellEncoder()); //inbound
+
                             pipeline.addLast(new ProcessingHandler());
                         }
                     }).option(ChannelOption.SO_REUSEADDR, true);
@@ -87,10 +89,16 @@ public class Router implements Runnable{
         @Override
         public void channelRead (ChannelHandlerContext ctx, Object msg) throws Exception {
             FIXMessage fixMessage = (FIXMessage) msg;
-            if (fixMessage.getMessageType().equals(MessageTypes.ACCEPT_CONNECTION.toString()))
-                addToRouteTable(ctx);
-            System.out.println(msg);
-            showTable();
+            if (fixMessage.getMessageType().equals(MessageTypes.ACCEPT_CONNECTION.toString())) {
+                addToRouteTable(ctx, msg);
+            }
+            else if (fixMessage.getMessageType().equals(MessageTypes.BUY.toString()) ||
+                    fixMessage.getMessageType().equals(MessageTypes.SELL.toString())) {
+                BuySell buySellMessage = (BuySell) msg;
+                System.out.println(buySellMessage);
+                ctx.writeAndFlush(buySellMessage);
+            }
+            //showTable();
         }
 
         @Override
@@ -136,12 +144,15 @@ public class Router implements Runnable{
         return "Broker";
     }
 
-    private void addToRouteTable(ChannelHandlerContext ctx) {
+    private void addToRouteTable(ChannelHandlerContext ctx, Object msg) {
+        AcceptConnection acceptConnection = (AcceptConnection) msg;
         String id = ctx.channel().remoteAddress().toString().substring(11);
         String tempSub = clientType.equals("Market") ? "0" : "1";
         id = id.concat(tempSub);
+        acceptConnection.setId(Integer.parseInt(id));
+        acceptConnection.setNewChecksum();
         System.out.println("Accepted connection from " + ctx.channel().remoteAddress() + "\n    Set ID to " + id);
-        ctx.writeAndFlush("assigned ID: " + id);
+        ctx.writeAndFlush(acceptConnection);
         routeTable.put(Integer.valueOf(id), ctx);
     }
 }

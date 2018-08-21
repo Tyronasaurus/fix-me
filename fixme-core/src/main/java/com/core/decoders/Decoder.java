@@ -1,6 +1,7 @@
 package com.core.decoders;
 
 import com.core.messages.AcceptConnection;
+import com.core.messages.BuySell;
 import com.core.messages.FIXMessage;
 import com.core.messages.MessageTypes;
 import io.netty.buffer.ByteBuf;
@@ -23,6 +24,19 @@ public class Decoder extends ReplayingDecoder<Object> {
             ret.setMessageType(fixMessage.getMessageType());
             ret.setId(in.readInt());
             ret.setChecksum(in.readCharSequence(in.readInt(), cs).toString());
+            out.add(ret);
+        }
+        else if (fixMessage.getMessageType().equals(MessageTypes.BUY.toString()) ||
+                fixMessage.getMessageType().equals(MessageTypes.SELL.toString())) {
+            BuySell ret = new BuySell();
+            ret.setMessageType(fixMessage.getMessageType());
+            ret.setId(in.readInt());
+            ret.setExecOrRejec(in.readCharSequence(in.readInt(), cs).toString());
+            ret.setMarketId(in.readInt());
+            ret.setInstrument(in.readCharSequence(in.readInt(), cs).toString());
+            ret.setQuantity(in.readInt());
+            ret.setPrice(in.readInt());
+            ret.setNewChecksum();
             out.add(ret);
         }
     }

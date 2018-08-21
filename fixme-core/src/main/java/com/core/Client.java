@@ -2,7 +2,9 @@ package com.core;
 
 import com.core.decoders.Decoder;
 import com.core.encoders.AcceptConnectionEncoder;
+import com.core.encoders.BuySellEncoder;
 import com.core.messages.AcceptConnection;
+import com.core.messages.BuySell;
 import com.core.messages.FIXMessage;
 import com.core.messages.MessageTypes;
 import io.netty.bootstrap.Bootstrap;
@@ -10,9 +12,6 @@ import io.netty.channel.*;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.SocketChannel;
 import io.netty.channel.socket.nio.NioSocketChannel;
-import io.netty.handler.codec.string.StringDecoder;
-import io.netty.handler.codec.string.StringEncoder;
-import sun.plugin2.message.Message;
 
 import java.io.BufferedReader;
 import java.io.IOException;
@@ -69,10 +68,10 @@ public class Client implements Runnable{
                         protected void initChannel(SocketChannel socketChannel) throws Exception {
                             ChannelPipeline pipeline = socketChannel.pipeline();
 
-                            pipeline.addLast(new AcceptConnectionEncoder());
-                            pipeline.addLast(new Decoder());
-                            pipeline.addLast(new StringDecoder());
-                            pipeline.addLast(new StringEncoder());
+                            pipeline.addLast(new Decoder()); //outbound
+                            pipeline.addLast(new AcceptConnectionEncoder()); //inbound
+                            pipeline.addLast(new BuySellEncoder()); //inbound
+
                             pipeline.addLast(new ClientHandler());
                         }
                     });
@@ -89,7 +88,7 @@ public class Client implements Runnable{
         //Handles all decoded incoming strings from server
         @Override
         public void channelActive(ChannelHandlerContext ctx) {
-            System.out.println("Connected to the server - " + ctx.channel().remoteAddress());
+            System.out.println(clientType + " is connecting..." + ctx.channel().remoteAddress());
             AcceptConnection msg = new AcceptConnection(MessageTypes.ACCEPT_CONNECTION.toString(), 0 , 0);
 
             ctx.writeAndFlush(msg);
@@ -97,7 +96,31 @@ public class Client implements Runnable{
 
         @Override
         public void channelRead(ChannelHandlerContext ctx, Object msg) {
-            System.out.println("[SERVER] - " + msg);
+            //System.out.println("[SERVER] - " + msg)
+            FIXMessage fixMessage = (FIXMessage) msg;
+            if (fixMessage.getMessageType().equals(MessageTypes.ACCEPT_CONNECTION.toString())) {
+                AcceptConnection acceptConnection = (AcceptConnection) msg;
+                id = acceptConnection.getId();
+                System.out.println("Server assigned ID: " + acceptConnection.getId());
+            }
+            else if (fixMessage.getMessageType().equals(MessageTypes.BUY.toString()) ||
+                    fixMessage.getMessageType().equals(MessageTypes.SELL.toString())) {
+                System.out.println("Received response from Router");
+                BuySell buySell = (BuySell) msg;
+                try {
+                    if (!buySell.getMD5Message().equals(buySell.getChecksum())) {
+                        throw new Exception("Checksum is not valid");
+                    }
+                } catch (Exception e) {
+                    System.out.println(e.getMessage());
+                    return;
+                }
+                if (buySell.getMessageType().equals(MessageTypes.SELL.toString())) {
+                    System.out.println("This is a sell");
+                } else if (buySell.getMessageType().equals(MessageTypes.BUY.toString())) {
+                    System.out.println("This is a buy");
+                }
+            }
         }
 
         private void channelWrite(ChannelHandlerContext ctx) {
@@ -107,7 +130,8 @@ public class Client implements Runnable{
                     throw new Exception("Input is empty");
                 }
                 else if (clientType.equals("Broker")) {
-                    ctx.writeAndFlush(input);
+                    BuySell msg = convertToBuySell(input);
+                    ctx.writeAndFlush(msg);
                     System.out.println("Sending request to router...");
                 }
             } catch (Exception e) {
@@ -118,15 +142,35 @@ public class Client implements Runnable{
 
         @Override
         public void channelReadComplete(ChannelHandlerContext ctx) {
-
             if (clientType.equals("Broker"))
                 channelWrite(ctx);
         }
 
         private String getClientText() throws Exception{
-            System.out.println("Enter a request");
+            System.out.println("Enter a request -> [sell || buy] [market id] [instrument] [quantity] [price] ");
             BufferedReader in = new BufferedReader(new InputStreamReader(System.in));
             return in.readLine();
+        }
+
+        private BuySell convertToBuySell(String brokerInput) throws Exception {
+            BuySell buySellMessage = new BuySell();
+            String [] buySellAtt = brokerInput.split("\\s+");
+            if (buySellAtt[0].equalsIgnoreCase("buy")) {
+                buySellMessage.setMessageType(MessageTypes.BUY.toString());
+            } else if (buySellAtt[0].equalsIgnoreCase("sell")) {
+                buySellMessage.setMessageType(MessageTypes.SELL.toString());
+            } else {
+                throw new Exception("Invalid input");
+            }
+            buySellMessage.setId(id);
+            buySellMessage.setExecOrRejec("-");
+            buySellMessage.setMarketId(Integer.valueOf(buySellAtt[1]));
+            buySellMessage.setInstrument(buySellAtt[2]);
+            buySellMessage.setQuantity(Integer.valueOf(buySellAtt[3]));
+            buySellMessage.setPrice(Integer.valueOf(buySellAtt[4]));
+            buySellMessage.setNewChecksum();
+            System.out.println(buySellMessage.toString());
+            return buySellMessage;
         }
     }
 
