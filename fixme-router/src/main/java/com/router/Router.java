@@ -86,6 +86,8 @@ public class Router implements Runnable{
 
     class ProcessingHandler extends ChannelInboundHandlerAdapter {
 
+
+
         @Override
         public void channelRead (ChannelHandlerContext ctx, Object msg) throws Exception {
             FIXMessage fixMessage = (FIXMessage) msg;
@@ -95,14 +97,40 @@ public class Router implements Runnable{
             else if (fixMessage.getMessageType().equals(MessageTypes.BUY.toString()) ||
                     fixMessage.getMessageType().equals(MessageTypes.SELL.toString())) {
                 BuySell buySellMessage = (BuySell) msg;
+                System.out.println("A request is being processed...");
+                Thread.sleep(1000);
                 System.out.println(buySellMessage);
-                ctx.writeAndFlush(buySellMessage);
+                try {
+                    if (!routeTable.containsKey(buySellMessage.getMarketId())) {
+
+                        throw new Exception("This market does not exist. ID " + buySellMessage.getMarketId());
+
+                    }
+                    else if (!buySellMessage.getMD5Message().equals(buySellMessage.getChecksum())) {
+                        throw new Exception("The message data has been altered");
+                    }
+                    if (buySellMessage.getExecOrRejec().equals(MessageTypes.EXECUTE.toString()) ||
+                            buySellMessage.getExecOrRejec().equals(MessageTypes.REJECT.toString())) {
+                        //Market has responded and sends to broker
+                        ChannelHandlerContext brokerCtx = getContextFromTable(buySellMessage.getId());
+                        brokerCtx.writeAndFlush(buySellMessage);
+                    }
+                    else {
+                        //Message goes from Broker to market
+                        getContextFromTable(buySellMessage.getMarketId()).writeAndFlush(buySellMessage);
+                    }
+                } catch (Exception e) {
+                    System.out.println(e.getMessage());
+                    buySellMessage.setExecOrRejec(MessageTypes.REJECT.toString());
+                    buySellMessage.setNewChecksum();
+                    ctx.writeAndFlush(buySellMessage);
+                }
             }
             //showTable();
         }
 
         @Override
-        public void handlerRemoved(ChannelHandlerContext ctx) {
+        public void handlerRemoved(ChannelHandlerContext ctx){
             System.out.println(clientType + " [" + getIdFromTable(ctx) + "] removed");
             try {
                 routeTable.remove(getIdFromTable(ctx));
@@ -116,6 +144,11 @@ public class Router implements Runnable{
             //showTable();
         }
     }
+
+    private ChannelHandlerContext getContextFromTable(Integer key) {
+        return routeTable.get(key);
+    }
+
 
     private Integer getIdFromTable(ChannelHandlerContext ctx) {
         int id = 0;
@@ -151,7 +184,7 @@ public class Router implements Runnable{
         id = id.concat(tempSub);
         acceptConnection.setId(Integer.parseInt(id));
         acceptConnection.setNewChecksum();
-        System.out.println("Accepted connection from " + ctx.channel().remoteAddress() + "\n    Set ID to " + id);
+        System.out.println("Accepted connection from " + ctx.channel().remoteAddress() + "\nSet ID to " + id);
         ctx.writeAndFlush(acceptConnection);
         routeTable.put(Integer.valueOf(id), ctx);
     }

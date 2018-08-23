@@ -105,7 +105,6 @@ public class Client implements Runnable{
             }
             else if (fixMessage.getMessageType().equals(MessageTypes.BUY.toString()) ||
                     fixMessage.getMessageType().equals(MessageTypes.SELL.toString())) {
-                System.out.println("Received response from Router");
                 BuySell buySell = (BuySell) msg;
                 try {
                     if (!buySell.getMD5Message().equals(buySell.getChecksum())) {
@@ -115,10 +114,23 @@ public class Client implements Runnable{
                     System.out.println(e.getMessage());
                     return;
                 }
+
+                if ((buySell.getExecOrRejec().equals(MessageTypes.EXECUTE.toString()) ||
+                        buySell.getExecOrRejec().equals(MessageTypes.REJECT.toString())) && clientType.equals("Broker"))  {
+                    System.out.println("The market has responded with: " + buySell.getExecOrRejec());
+                    System.out.println("Requested: " + buySell.getQuantity() + "x " + buySell.getInstrument() +
+                            " for R " + buySell.getPrice() );
+
+                    return;
+                }
+
+                System.out.println(buySell);
                 if (buySell.getMessageType().equals(MessageTypes.SELL.toString())) {
-                    System.out.println("This is a sell");
+                    handleSellRequest(ctx, buySell);
+                    return;
                 } else if (buySell.getMessageType().equals(MessageTypes.BUY.toString())) {
-                    System.out.println("This is a buy");
+                    handleBuyRequest(ctx, buySell);
+                    return;
                 }
             }
         }
@@ -133,6 +145,7 @@ public class Client implements Runnable{
                     BuySell msg = convertToBuySell(input);
                     ctx.writeAndFlush(msg);
                     System.out.println("Sending request to router...");
+                    Thread.sleep(1000);
                 }
             } catch (Exception e) {
                 System.out.println(e.getMessage());
@@ -145,33 +158,67 @@ public class Client implements Runnable{
             if (clientType.equals("Broker"))
                 channelWrite(ctx);
         }
+    }
 
-        private String getClientText() throws Exception{
-            System.out.println("Enter a request -> [sell || buy] [market id] [instrument] [quantity] [price] ");
-            BufferedReader in = new BufferedReader(new InputStreamReader(System.in));
-            return in.readLine();
-        }
+    private void handleBuyRequest(ChannelHandlerContext ctx, BuySell buySell) {
+        if (buySell.getPrice() > buySell.getQuantity()) {
+            buySell.setExecOrRejec(MessageTypes.REJECT.toString());
+            System.out.println("Buy request for " + buySell.getQuantity() + "x " + buySell.getInstrument() +
+                    " has been REJECTED");
 
-        private BuySell convertToBuySell(String brokerInput) throws Exception {
-            BuySell buySellMessage = new BuySell();
-            String [] buySellAtt = brokerInput.split("\\s+");
-            if (buySellAtt[0].equalsIgnoreCase("buy")) {
-                buySellMessage.setMessageType(MessageTypes.BUY.toString());
-            } else if (buySellAtt[0].equalsIgnoreCase("sell")) {
-                buySellMessage.setMessageType(MessageTypes.SELL.toString());
-            } else {
-                throw new Exception("Invalid input");
-            }
-            buySellMessage.setId(id);
-            buySellMessage.setExecOrRejec("-");
-            buySellMessage.setMarketId(Integer.valueOf(buySellAtt[1]));
-            buySellMessage.setInstrument(buySellAtt[2]);
-            buySellMessage.setQuantity(Integer.valueOf(buySellAtt[3]));
-            buySellMessage.setPrice(Integer.valueOf(buySellAtt[4]));
-            buySellMessage.setNewChecksum();
-            System.out.println(buySellMessage.toString());
-            return buySellMessage;
         }
+        else {
+            buySell.setExecOrRejec(MessageTypes.EXECUTE.toString());
+            System.out.println("Buy request has been EXECUTED");
+            System.out.println("Bought " + buySell.getQuantity() + "x " + buySell.getInstrument() + " for R " +
+                    buySell.getPrice());
+        }
+        buySell.setNewChecksum();
+        ctx.writeAndFlush(buySell);
+
+    }
+
+    private void handleSellRequest(ChannelHandlerContext ctx, BuySell buySell) {
+        if (buySell.getQuantity() > 1000 && buySell.getPrice() > 1000)  {
+            buySell.setExecOrRejec(MessageTypes.REJECT.toString());
+            System.out.println("Sell request for " + buySell.getQuantity() + "x " + buySell.getInstrument() +
+                    " has been REJECTED");
+        }
+        else {
+            buySell.setExecOrRejec(MessageTypes.EXECUTE.toString());
+            System.out.println("Sell request has been EXECUTED");
+            System.out.println("Sold " + buySell.getQuantity() + " " + buySell.getInstrument() + " for R " +
+                    buySell.getPrice());
+        }
+        buySell.setNewChecksum();
+        ctx.writeAndFlush(buySell);
+    }
+
+    private String getClientText() throws Exception{
+        System.out.println("Enter a request -> [sell || buy] [market id] [instrument] [quantity] [price] ");
+        BufferedReader in = new BufferedReader(new InputStreamReader(System.in));
+        return in.readLine();
+    }
+
+    private BuySell convertToBuySell(String brokerInput) throws Exception {
+        BuySell buySellMessage = new BuySell();
+        String [] buySellAtt = brokerInput.split("\\s+");
+        if (buySellAtt[0].equalsIgnoreCase("buy")) {
+            buySellMessage.setMessageType(MessageTypes.BUY.toString());
+        } else if (buySellAtt[0].equalsIgnoreCase("sell")) {
+            buySellMessage.setMessageType(MessageTypes.SELL.toString());
+        } else {
+            throw new Exception("Invalid input");
+        }
+        buySellMessage.setId(id);
+        buySellMessage.setExecOrRejec("-");
+        buySellMessage.setMarketId(Integer.valueOf(buySellAtt[1]));
+        buySellMessage.setInstrument(buySellAtt[2]);
+        buySellMessage.setQuantity(Integer.valueOf(buySellAtt[3]));
+        buySellMessage.setPrice(Integer.valueOf(buySellAtt[4]));
+        buySellMessage.setNewChecksum();
+        System.out.println(buySellMessage.toString());
+        return buySellMessage;
     }
 
 }

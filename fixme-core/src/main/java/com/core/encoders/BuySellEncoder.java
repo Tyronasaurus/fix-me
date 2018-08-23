@@ -5,7 +5,6 @@ import com.core.messages.MessageTypes;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.handler.codec.MessageToByteEncoder;
-import sun.plugin2.message.Message;
 
 import java.nio.charset.Charset;
 
