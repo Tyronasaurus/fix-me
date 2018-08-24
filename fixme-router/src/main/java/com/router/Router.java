@@ -10,16 +10,12 @@ import com.core.messages.MessageTypes;
 import io.netty.bootstrap.ServerBootstrap;
 import io.netty.channel.*;
 import io.netty.channel.nio.NioEventLoopGroup;
-import io.netty.channel.socket.SocketChannel;
 import io.netty.channel.socket.nio.NioServerSocketChannel;
-import io.netty.handler.codec.string.StringDecoder;
-import io.netty.handler.codec.string.StringEncoder;
 
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.util.HashMap;
-import java.util.Iterator;
 
 public class Router implements Runnable{
 
@@ -27,12 +23,10 @@ public class Router implements Runnable{
     private String clientType;
     private final int port;
 
-    private EventLoopGroup bossGroup;
-    private EventLoopGroup workerGroup;
+    private NioEventLoopGroup bossGroup;
+    private NioEventLoopGroup workerGroup;
 
-    public static void main (String [] args)
-            throws Exception {
-
+    public static void main (String [] args) {
         Router brokerServer = new Router(5000);
         Thread brokerServerThread = new Thread(brokerServer);
         brokerServerThread.start();
@@ -59,11 +53,11 @@ public class Router implements Runnable{
             ServerBootstrap bootstrap = new ServerBootstrap()
                     .group(bossGroup, workerGroup)
                     .channel(NioServerSocketChannel.class)
-                    .childHandler(new ChannelInitializer<SocketChannel>(){
+                    .childHandler(new ChannelInitializer(){
                         @Override
-                        public void initChannel (SocketChannel ch) throws Exception
+                        protected void initChannel(Channel channel) throws Exception
                         {
-                            ChannelPipeline pipeline = ch.pipeline();
+                            ChannelPipeline pipeline = channel.pipeline();
 
                             pipeline.addLast(new Decoder()); //outbound
                             pipeline.addLast(new AcceptConnectionEncoder()); //inbound
@@ -72,6 +66,7 @@ public class Router implements Runnable{
                             pipeline.addLast(new ProcessingHandler());
                         }
                     }).option(ChannelOption.SO_REUSEADDR, true);
+
 
             //bind server to port and start listening for incoming connections
             ChannelFuture f = bootstrap.bind(port).sync();

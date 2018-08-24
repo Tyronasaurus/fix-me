@@ -2,16 +2,12 @@ package com.broker;
 
 import com.core.Client;
 
-public class Broker extends Client{
-
+public class Broker
+{
     public static void main (String []args) throws Exception {
-        Broker broker = new Broker("localhost", 5000);
-        Thread clientThread = new Thread(broker);
-        clientThread.start();
-        //broker.run();
+        Client broker = new Client("localhost", 5000);
+
+        broker.run();
     }
 
-    public Broker(String host, int port) throws Exception {
-        super(host, port);
-    }
 }
